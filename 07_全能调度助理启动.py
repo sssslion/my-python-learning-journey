@@ -1,9 +1,13 @@
 import re
 import datetime
+import os
 from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv(verbose=True)
 
 client = OpenAI(
-    api_key="miyao",
+    api_key=os.getenv("DEEPSEEK_API_KEY"),
     base_url="https://api.deepseek.com"
 )
 
@@ -28,15 +32,29 @@ while True:
 
 
     messages.append({"role": "user", "content": user_input})
-    print("AI 正在思考中…")
+
+
 
     response = client.chat.completions.create(
         model="deepseek-chat",
-        messages=messages
+        messages=messages,
+        stream=True
     )
 
 
-    answer = response.choices[0].message.content
+    print("AI: ",end="",flush=True)
+
+
+    answer = ""
+
+    for chunk in response:
+        if chunk.choices[0].delta.content:
+            content = chunk.choices[0].delta.content
+            print(content, end="" , flush=True)
+            answer += content
+    print()
+
+   
     tool_result = ""
 
 
@@ -45,7 +63,7 @@ while True:
 
         answer_fixed = answer.replace("×", "*").replace("÷", "/")
 
-        expression = "".join(re.findall(r'[0-9+\-*/(). ]', answer))
+        expression = "".join(re.findall(r'[0-9+\-*/(). ]', answer_fixed))
         try:
             tool_result = f"计算结果为：{eval(expression)}"
         except Exception as e:
@@ -90,11 +108,12 @@ while True:
             messages=messages
         )
         final_answer = final_response.choices[0].message.content
-        print(f"AI {final_answer}")
+        print(f"AI: {final_answer}")
         messages.append({"role": "assistant", "content": final_answer})
 
 
 
     else:
-        print(f"AI: {answer}")
+        
         messages.append({"role": "assistant", "content": answer})
+
