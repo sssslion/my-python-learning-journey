@@ -61,6 +61,7 @@ else:
         pdf_text = ""
         for page in pdf_reader.pages:
             pdf_text += page.extract_text() + "\n"
+        pdf_text = pdf_text.encode('utf-8', 'ignore').decode('utf-8')
 
         if "pdf_content" not in st.session_state:
             st.session_state.pdf_content = pdf_text
