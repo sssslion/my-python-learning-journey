@@ -52,7 +52,7 @@ else:
     st.set_page_config(page_title="全能AI助理", page_icon="🤖")
     st.title("🤖 我的全能AI助理")
 
-    uploaded_file = st.file_uploder("上传你的PDF文件（让AI帮你读）", type=["pdf"])
+    uploaded_file = st.file_uploader("上传你的PDF文件（让AI帮你读）", type=["pdf"])
 
     if uploaded_file is not None:
         import pypdf
