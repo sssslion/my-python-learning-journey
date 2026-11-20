@@ -4,6 +4,7 @@ import re
 import datetime
 from openai import OpenAI
 from dotenv import load_dotenv
+from chunk_tool import split_into_chunks, pick_relevant
 
 
 
@@ -72,15 +73,14 @@ else:
     with st.sidebar:
         st.header("控制面板")
 
-        uploaded_file = st.file_uploader("上传PDF文档", type=["pdf"])
-
+        
         if st.button("清空对话记忆"):
             st.session_state.messages = [{"role": "system", "content": system_prompt}]
 
             if "current_pdf_name" in st.session_state:
                 del st.session_state.current_pdf_name
-            if "pdf_content" in st.session_state:
-                del st.session_state.pdf_content
+            if "pdf_chunks" in st.session_state:
+                del st.session_state.pdf_chunks
             st.rerun()
 
     uploaded_file = st.file_uploader("上传你的PDF文件（让AI帮你读）", type=["pdf"])
@@ -94,21 +94,11 @@ else:
             pdf_text += page.extract_text() + "\n"
         pdf_text = pdf_text.encode('utf-8', 'ignore').decode('utf-8')
     
-        if "current_name" not in st.session_state or st.session_state.current_pdf_name != uploaded_file.name:
-
+        if st.session_state.get("current_pdf_name") != uploaded_file.name:
             st.session_state.current_pdf_name = uploaded_file.name
-
-            st.session_state.pdf_content = pdf_text
-
-            new_system_prompt = f"""你是一个专业的文档阅读助手。
-            请严格根据用户上传的文档内容回答问题。如果文档里没有写，请直接说“文档未提及”。
-            以下是文档内容:
-            {pdf_text[:8000]}
-            """
-
-            st.session_state.messages = [{"role": "system", "content": new_system_prompt}]
-
-            st.success(f"文档《{uploaded_file.name}》读取成功，聊天记忆已刷新！")
+            st.session_state.pdf_chunks = split_into_chunks(pdf_text, size=600)
+            st.session_state.messages = [{"role": "system", "content": system_prompt}]
+            st.success(f"文档《{uploaded_file}》读取成功，切成了{len(st.session_state.pdf_chunks)}块")
 
 
 
@@ -133,10 +123,20 @@ else:
                 print("即将发给API的数据")
                 print(st.session_state.messages)
                 print("===")
+
+                messages_to_send = list(st.session_state.messages)
+
+                if st.session_state.get("pdf_chunks"):
+                    picked = pick_relevant(st.session_state.pdf_chunks, prompt, k=3)
+                    doc_block = "\n\n".join(picked)
+                    messages_to_send.append({
+                        "role": "system",
+                        "content": "以下是文档中与问题最相关的片段，请根据它们回答: \n" + doc_block
+                    })
                 
                 response = client.chat.completions.create(
                     model="deepseek-chat",
-                    messages=st.session_state.messages,
+                    messages=messages_to_send,
                     stream=True
                 )
 
