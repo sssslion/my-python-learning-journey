@@ -1,3 +1,5 @@
+import math
+
 def split_into_chunks(text, size=300):
     """把一整篇文章切成若干块，每块大约 size 个字。"""
     chunks = []
@@ -10,12 +12,50 @@ def pick_relevant(chunks, question, k=3):
     scored = []
     for idx, chunk in enumerate(chunks):
         score = len(quest_chars & set(chunk))
-        print(idx, score)
+        
         scored.append((score, idx))
 
-    scored.sort(reverse=True)
+    scored.sort(key=lambda t: t[0], reverse=True)
     top = scored[:k]
     return [chunks[i] for _, i in top]
+
+def bigrams(text):
+    """把一段文字拆成相邻两个字一组的组合，去重"""
+    return {text[i:i + 2] for i in range(len(text) - 1)}
+
+def pick_relevant_v2(chunks, question, k=3):
+    """和 pick_relevant 一样, 但按"两个字的组合"算分"""
+    quest_grams = bigrams(question)
+    scored = []
+    for idx, chunk in enumerate(chunks):
+        score = len(quest_grams & bigrams(chunk))
+        scored.append((score, idx))
+    scored.sort(key=lambda t: t[0], reverse=True)
+    return [chunks[i] for _, i in scored[:k]]
+
+def idf_table(chunks):
+    """统计每个二字组合出现在多少块里，算出它的权重"""
+    df = {}
+    for chunk in chunks:
+        for g in bigrams(chunk):
+            df[g] = df.get(g, 0) + 1
+
+    n = len(chunks)
+    return {g: math.log(n / c) for g, c in df.items()}
+
+def pick_relevant_v3(chunks, question, k=3):
+    """v2 的升级版: 不是数命中几个, 而是把他们各自的权重加起来"""
+    weights = idf_table(chunks)
+    quest_grams = bigrams(question)
+
+    scored = []
+    for idx, chunk in enumerate(chunks):
+        shared = quest_grams & bigrams(chunk)
+        score = sum(weights.get(g,0) for g in shared)
+        scored.append((score, idx))
+
+    scored.sort(key=lambda t: t[0], reverse=True)
+    return [chunks[i] for _, i in scored[:k]]
 
 
 if __name__ == "__main__":
