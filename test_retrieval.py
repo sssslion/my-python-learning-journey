@@ -12,6 +12,7 @@ TESTS = [
     ("(5, 2) 和 (5, 10) 排序时谁在前？reverse=True 时呢？", "序号大的在前"),
     ("AttributeError 报出来时，它前面的代码执行了吗？", "它前面的行已经跑过了"),
     ("git status 里 ?? 和 !! 分别是什么意思？", "被 .gitignore 挡住了"),
+    ("我每点一次按钮，之前聊过的东西就不见了，为什么", "这个键你从来没存过"),
 ]
 
 def main():
@@ -27,9 +28,11 @@ def main():
         picked = pick_relevant(chunks, q, k=K)
 
         gold = [i for i, c in enumerate(chunks) if keyword in c]
-        if len(gold) !=1:
+        if len(gold) == 0:
             print("跳过（关键词不唯一）:", q)
             continue
+        if len(gold) > 1:
+            print("跳过(关键词太泛, 出现", len(gold), "次) :", q)
 
         rank = 0
         for r, p in enumerate(picked, start=1):

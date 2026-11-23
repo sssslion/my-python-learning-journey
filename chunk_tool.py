@@ -1,4 +1,7 @@
+import json
 import math
+import urllib.request
+from functools import lru_cache
 
 def split_into_chunks(text, size=300):
     """把一整篇文章切成若干块，每块大约 size 个字。"""
@@ -53,6 +56,35 @@ def pick_relevant_v3(chunks, question, k=3):
         shared = quest_grams & bigrams(chunk)
         score = sum(weights.get(g,0) for g in shared)
         scored.append((score, idx))
+
+    scored.sort(key=lambda t: t[0], reverse=True)
+    return [chunks[i] for _, i in scored[:k]]
+
+@lru_cache(maxsize=1000)
+def embed(text):
+    """把一段文字变成1024个数字（同一个text只算一次）"""
+    req = urllib.request.Request(
+        "http://localhost:11434/api/embeddings",
+        data=json.dumps({"model": "bge-m3", "prompt": text}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    return json.load(urllib.request.urlopen(req))["embedding"]
+
+def cosine(a, b):
+    """夹角余弦，越大越像"""
+    dot = sum(x * y for x, y in zip(a, b))
+    la = math.sqrt(sum(x * x for x in a))
+    lb = math.sqrt(sum(y * y for y in b))
+    return dot / (la * lb)
+
+def pick_relevant_v4(chunks, question, k=3):
+    """向量版：不看字面意思，只看意思远近"""
+    q_vec = embed(question)
+    scored = []
+    for idx, chunk in enumerate(chunks):
+        score = cosine(q_vec, embed(chunk))
+        scored.append((score,idx))
+
 
     scored.sort(key=lambda t: t[0], reverse=True)
     return [chunks[i] for _, i in scored[:k]]
