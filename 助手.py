@@ -4,7 +4,7 @@ import re
 import datetime
 from openai import OpenAI
 from dotenv import load_dotenv
-from chunk_tool import split_into_chunks, pick_relevant
+from chunk_tool import split_into_chunks, pick_relevant_v3 as pick_relevant
 
 
 
