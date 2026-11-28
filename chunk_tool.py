@@ -60,7 +60,7 @@ def pick_relevant_v3(chunks, question, k=3):
     scored.sort(key=lambda t: t[0], reverse=True)
     return [chunks[i] for _, i in scored[:k]]
 
-@lru_cache(maxsize=1000)
+@lru_cache(maxsize=None)
 def embed(text):
     """把一段文字变成1024个数字（同一个text只算一次）"""
     req = urllib.request.Request(

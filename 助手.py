@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-import re
+import json
 import datetime
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -32,7 +32,7 @@ if not is_logged_in:
 
         else:
             st.error(f"密码错误！")
-       
+
 else:
 
     api_key = os.getenv("DEEPSEEK_API_KEY")
@@ -42,7 +42,7 @@ else:
             api_key = st.secrets["DEEPSEEK_API_KEY"]
         except Exception:
             pass
-        
+
     client = OpenAI(
         api_key=api_key,
         base_url="https://api.deepseek.com"
@@ -53,18 +53,105 @@ else:
     st.set_page_config(page_title="全能AI助理", page_icon="🤖")
     st.title("🤖 我的全能AI助理")
 
-    
 
 
+    # ============ 四个真正的工具函数 ============
 
-    system_prompt = """你是一个全能助理，拥有以下四个本地工具。
-    请根据用户的话，判断该用哪个工具，并严格按照以下格式输出（不要加任何多余的标点）：
-    1.如果要算数学题，输出【CALC 算式】
-    2.如果要问时间，输出：【TIME】
-    3.如果要记事情，输出【SAVE 内容】
-    4.如果要看记事本，输出：【READ】
-    5.如果不需要工具，请正常聊天回复。
-    """
+    def calculator(expression):
+        """只允许数字和四则运算符，别的一律拒掉"""
+        allowed = "0123456789+-*/(). "
+        if any(c not in allowed for c in expression):
+            return "算式里有不允许的字符"
+        try:
+            return eval(expression)
+        except Exception as e:
+            return f"算不出来: {e}"
+
+
+    def get_time():
+        return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+    def save_note(content):
+        with open("全能助理记事本.txt", "a", encoding="utf-8") as f:
+            f.write(content + "\n")
+        return f"已经记到记事本: {content}"
+
+
+    def read_note():
+        try:
+            with open("全能助理记事本.txt", encoding="utf-8") as f:
+                return f.read().strip() or "记事本是空的"
+        except FileNotFoundError:
+            return "记事本是空的"
+
+
+    # ============ 给模型看的说明书 ============
+
+    TOOLS = [
+        {
+            "type": "function",
+            "function": {
+                "name": "calculator",
+                "description": "计算数学表达式，例如 (12+8)*3/5",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "expression": {"type": "string", "description": "要计算的算式"}
+                    },
+                    "required": ["expression"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_time",
+                "description": "获取当前的日期和时间",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "save_note",
+                "description": "往记事本里写一条新内容",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "content": {"type": "string", "description": "要记下的内容"}
+                    },
+                    "required": ["content"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "read_note",
+                "description": "读出记事本里已有的全部内容",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    ]
+
+
+    # ============ 分发：名字 → 函数 ============
+
+    def run_tool(name, arguments):
+        args = json.loads(arguments)
+        if name == "calculator":
+            return calculator(args["expression"])
+        if name == "get_time":
+            return get_time()
+        if name == "save_note":
+            return save_note(args["content"])
+        if name == "read_note":
+            return read_note()
+        return f"没有这个工具: {name}"
+
+
+    system_prompt = "你是一个全能助理，可以聊天，也可以调用工具帮用户算数、查时间、记事情。回答用中文，简洁一点。"
 
 
     if "messages" not in st.session_state:
@@ -73,7 +160,7 @@ else:
     with st.sidebar:
         st.header("控制面板")
 
-        
+
         if st.button("清空对话记忆"):
             st.session_state.messages = [{"role": "system", "content": system_prompt}]
 
@@ -84,16 +171,16 @@ else:
             st.rerun()
 
     uploaded_file = st.file_uploader("上传你的PDF文件（让AI帮你读）", type=["pdf"])
-    
+
     if uploaded_file is not None:
         import pypdf
-    
+
         pdf_reader = pypdf.PdfReader(uploaded_file)
         pdf_text = ""
         for page in pdf_reader.pages:
             pdf_text += page.extract_text() + "\n"
         pdf_text = pdf_text.encode('utf-8', 'ignore').decode('utf-8')
-    
+
         if st.session_state.get("current_pdf_name") != uploaded_file.name:
             st.session_state.current_pdf_name = uploaded_file.name
             st.session_state.pdf_chunks = split_into_chunks(pdf_text, size=600)
@@ -105,13 +192,8 @@ else:
     for message in st.session_state.messages:
         if message["role"] != "system":
 
-            content = message["content"]
-
-            if content.startswith("【") or content.startswith("系统工具返回的结果是"):
-                continue
-            
             with st.chat_message(message["role"]):
-                st.write(content)
+                st.write(message["content"])
 
 
     if prompt := st.chat_input("你想说点什么？"):
@@ -120,81 +202,40 @@ else:
             st.write(prompt)
 
         with st.chat_message("assistant"):
-                print("即将发给API的数据")
-                print(st.session_state.messages)
-                print("===")
+            msgs = list(st.session_state.messages)
 
-                messages_to_send = list(st.session_state.messages)
+            if st.session_state.get("pdf_chunks"):
+                picked = pick_relevant(st.session_state.pdf_chunks, prompt, k=3)
+                msgs.append({
+                    "role": "system",
+                    "content": "以下是文档中与问题最相关的片段，请根据它们回答: \n\n" + "\n\n".join(picked)
+                })
 
-                if st.session_state.get("pdf_chunks"):
-                    picked = pick_relevant(st.session_state.pdf_chunks, prompt, k=3)
-                    doc_block = "\n\n".join(picked)
-                    messages_to_send.append({
-                        "role": "system",
-                        "content": "以下是文档中与问题最相关的片段，请根据它们回答: \n" + doc_block
-                    })
-                
+            answer = ""
+            for step in range(5):
                 response = client.chat.completions.create(
                     model="deepseek-chat",
-                    messages=messages_to_send,
-                    stream=True
+                    messages=msgs,
+                    tools=TOOLS,
                 )
+                msg = response.choices[0].message
 
-                message_placeholder = st.empty()
-                answer = ""
-                for chunk in response:
-                    if chunk.choices[0].delta.content:
-                        answer += chunk.choices[0].delta.content
+                if not msg.tool_calls:
+                    answer = msg.content or ""
+                    break
 
-                        message_placeholder.markdown(answer + "▌")
+                msgs.append(msg)
 
-                tool_result = ""
-                if "CALC" in answer:
-                    answer_fixed = answer.replace("×", "*").replace("÷", "/")
-                    expression = "".join(re.findall(r'[0-9+\-*/(). ]', answer_fixed))
-                    try:
-                        tool_result = f"计算结果为: {eval(expression)}"
-                    except Exception as e:
-                        tool_result = f"计算出错: {e}"
+                for tc in msg.tool_calls:
+                    st.caption(f"🔧 调用 {tc.function.name}({tc.function.arguments})")
+                    result = run_tool(tc.function.name, tc.function.arguments)
+                    msgs.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": str(result),
+                    })
+            else:
+                answer = "工具调用次数太多了，先停一下。"
 
-                elif "TIME" in answer:
-                    tool_result = f"当前时间是: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-
-                elif "SAVE" in answer:
-                    content_to_save = answer.split("SAVE")[-1].replace("】", "").replace(":", "").replace("：", "").strip()
-                    try:
-                        with open("全能助理记事本.txt", "a", encoding="utf-8") as f:
-                            f.write(content_to_save + "\n")
-                        tool_result = f"成功计入记事本，内容是: {content_to_save}"
-                    except Exception as e:
-                        tool_result = f"写入出错: {e}"
-
-                elif "READ" in answer:
-                    try:
-                        with open("全能助理记事本.txt", "r", encoding="utf-8") as f:
-                            tool_result = f"记事本里的内容是: \n{f.read()}"
-                    except FileNotFoundError:
-                        tool_result = "记事本目前是空的。"
-
-                if tool_result:
-
-                    message_placeholder.info(f"正在调用工具...\n\n`{tool_result}`")
-
-                    st.session_state.messages.append({"role": "assistant", "content": answer})
-
-                    st.session_state.messages.append({"role": "user", "content": f"系统工具返回的结果是: {tool_result}, 请用自然语言回复我。"})
-
-                    final_response = client.chat.completions.create(
-                        model="deepseek-chat",
-                        messages=st.session_state.messages,
-                        stream=True
-                    )
-
-                    final_answer = st.write_stream(chunk.choices[0].delta.content or "" for chunk in final_response)
-
-                    st.session_state.messages.append({"role": "assistant", "content": final_answer})
-
-                else:
-
-                    message_placeholder.markdown(answer)
-                    st.session_state.messages.append({"role": "assistant", "content": answer})
+            st.markdown(answer)
+            st.session_state.messages.append({"role": "assistant", "content": answer})
